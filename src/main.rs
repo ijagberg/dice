@@ -1,12 +1,15 @@
 #[macro_use]
 extern crate lazy_static;
-use rand::{thread_rng, Rng};
+use rand::Rng;
 use regex::Regex;
 use std::{fmt::Display, str::FromStr};
 use structopt::StructOpt;
 
 #[derive(Clone, Debug, StructOpt)]
 struct Opts {
+    /// Optional aggregate function to apply to the collected rolls of a die.
+    ///
+    /// One of 'sum', 'avg', 'max', 'min'
     #[structopt(long)]
     aggregate: Option<Aggregate>,
     dice_coll: Vec<Dice>,
@@ -16,6 +19,8 @@ struct Opts {
 enum Aggregate {
     Sum,
     Avg,
+    Max,
+    Min,
 }
 
 impl FromStr for Aggregate {
@@ -24,6 +29,8 @@ impl FromStr for Aggregate {
         Ok(match s.to_uppercase().as_str() {
             "SUM" => Self::Sum,
             "AVG" => Self::Avg,
+            "MAX" => Self::Max,
+            "MIN" => Self::Min,
             invalid => Err(ParseAggregateError::InvalidFormat(format!(
                 "invalid input: {}",
                 invalid
@@ -74,12 +81,26 @@ fn main() {
     for d in opts.dice_coll {
         let rolls = d.roll();
         println!(
-            "{} => {}",
+            "{} {}",
             d,
             match opts.aggregate {
                 None => format!("{:?}", rolls),
                 Some(Aggregate::Sum) => format!("{}", rolls.iter().sum::<u32>()),
                 Some(Aggregate::Avg) => format!("{}", rolls.iter().sum::<u32>() / d.count),
+                Some(Aggregate::Max) => format!(
+                    "{}",
+                    rolls
+                        .iter()
+                        .max()
+                        .expect("called aggregate max on empty iter")
+                ),
+                Some(Aggregate::Min) => format!(
+                    "{}",
+                    rolls
+                        .iter()
+                        .min()
+                        .expect("called aggregate min on empty iter")
+                ),
             }
         );
     }
@@ -101,7 +122,7 @@ impl FromStr for Dice {
                 if s.is_empty() {
                     1
                 } else {
-                    count.as_str().parse().map_err(|e| {
+                    count.as_str().parse().map_err(|_| {
                         ParseDieError::InvalidFormat(format!("invalid count {:?}", count))
                     })?
                 }
@@ -109,12 +130,18 @@ impl FromStr for Dice {
             None => 1,
         };
 
+        if count < 1 {
+            return Err(ParseDieError::InvalidFormat(
+                "count must be at least 1".into(),
+            ));
+        }
+
         let sides = captures
             .name("sides")
             .map(|m| m.as_str().parse::<u32>().unwrap())
             .ok_or_else(|| ParseDieError::InvalidFormat("missing sides".into()))?;
 
-        Ok(Dice { count, sides })
+        Ok(Dice::new(count, sides))
     }
 }
 
