@@ -13,6 +13,7 @@ struct Opts {
     #[structopt(short, long)]
     aggregate: Option<Aggregate>,
 
+    /// Dice to roll. Eg. "d6", "5d10" etc
     dice_coll: Vec<Dice>,
 }
 
