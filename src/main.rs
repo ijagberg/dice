@@ -148,7 +148,11 @@ fn main() {
             "{} {}",
             d,
             match opts.aggregate {
-                None => format!("{:?}", rolls),
+                None => rolls
+                    .iter()
+                    .map(|roll| roll.to_string())
+                    .collect::<Vec<_>>()
+                    .join(" "),
                 Some(Aggregate::Sum) => format!("{}", rolls.iter().sum::<u32>()),
                 Some(Aggregate::Avg) =>
                     format!("{}", rolls.iter().sum::<u32>() as f32 / d.count as f32),
