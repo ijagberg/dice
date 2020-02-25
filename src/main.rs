@@ -67,8 +67,8 @@ impl Dice {
         if count == 0 {
             panic!("count must be greater than 0");
         }
-        if sides == 0 {
-            panic!("sides must be greater than 0");
+        if sides <= 1 {
+            panic!("sides must be greater than 1");
         }
         Self { count, sides }
     }
@@ -110,12 +110,6 @@ impl FromStr for Dice {
             }
             None => 1,
         };
-
-        if count < 1 {
-            return Err(ParseDieError::InvalidFormat(
-                "count must be at least 1".into(),
-            ));
-        }
 
         let sides = captures
             .name("sides")
