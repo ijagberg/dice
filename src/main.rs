@@ -2,7 +2,7 @@
 extern crate lazy_static;
 use rand::Rng;
 use regex::Regex;
-use std::{fmt::Display, str::FromStr};
+use std::{fmt::Display, num::ParseIntError, str::FromStr};
 use structopt::StructOpt;
 
 #[derive(Clone, Debug, StructOpt)]
@@ -14,10 +14,10 @@ struct Opts {
     aggregate: Option<Aggregate>,
 
     /// Dice to roll. Eg. "d6", "5d10" etc
-    dice_coll: Vec<Dice>,
+    dice: Vec<Dice>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 enum Aggregate {
     Sum,
     Avg,
@@ -33,30 +33,26 @@ impl FromStr for Aggregate {
             "AVG" => Self::Avg,
             "MAX" => Self::Max,
             "MIN" => Self::Min,
-            invalid => Err(ParseAggregateError::InvalidFormat(format!(
-                "invalid input: {}",
-                invalid
-            )))?,
+            _invalid => Err(ParseAggregateError::InvalidFunction)?,
         })
     }
 }
 
 #[derive(Clone, Debug)]
 enum ParseAggregateError {
-    InvalidFormat(String),
+    InvalidFunction,
 }
 
 impl Display for ParseAggregateError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Ok(match self {
-            ParseAggregateError::InvalidFormat(message) => {
-                write!(f, "invalid aggregate function: {}", message)?
-            }
-        })
+        let output = match self {
+            ParseAggregateError::InvalidFunction => "invalid aggregate function",
+        };
+        write!(f, "{}", output)
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Dice {
     count: u32,
     sides: u32,
@@ -95,7 +91,7 @@ impl FromStr for Dice {
         };
         let captures = DIE_REGEX
             .captures(s)
-            .ok_or_else(|| ParseDieError::InvalidFormat("regex failed to capture".into()))?;
+            .ok_or_else(|| ParseDieError::RegexFailedToCapture)?;
 
         let count = match captures.name("count") {
             Some(count) => {
@@ -103,9 +99,10 @@ impl FromStr for Dice {
                 if s.is_empty() {
                     1
                 } else {
-                    count.as_str().parse().map_err(|_| {
-                        ParseDieError::InvalidFormat(format!("invalid count {:?}", count))
-                    })?
+                    count
+                        .as_str()
+                        .parse()
+                        .map_err(|e| ParseDieError::InvalidCount(e))?
                 }
             }
             None => 1,
@@ -114,7 +111,7 @@ impl FromStr for Dice {
         let sides = captures
             .name("sides")
             .map(|m| m.as_str().parse::<u32>().unwrap())
-            .ok_or_else(|| ParseDieError::InvalidFormat("missing sides".into()))?;
+            .ok_or_else(|| ParseDieError::MissingSides)?;
 
         Ok(Dice::new(count, sides))
     }
@@ -122,31 +119,36 @@ impl FromStr for Dice {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ParseDieError {
-    InvalidFormat(String),
+    RegexFailedToCapture,
+    InvalidCount(ParseIntError),
+    MissingSides,
 }
 
 impl Display for ParseDieError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Ok(match self {
-            ParseDieError::InvalidFormat(message) => {
-                write!(f, "parsing die failed with message: {}", message)?
+        let output = match self {
+            ParseDieError::RegexFailedToCapture => {
+                "regular expression could not capture contents of the input".to_string()
             }
-        })
+            ParseDieError::InvalidCount(c) => format!("parsing failed with error: '{}'", c),
+            ParseDieError::MissingSides => "could not match sides".to_string(),
+        };
+        write!(f, "{}", output)
     }
 }
 
 fn main() {
     let opts = Opts::from_args();
 
-    if opts.dice_coll.is_empty() {
+    if opts.dice.is_empty() {
         eprintln!("Provide some dice to roll")
     }
 
-    for d in opts.dice_coll {
-        let rolls = d.roll();
+    for dice in opts.dice {
+        let rolls = dice.roll();
         println!(
             "{} {}",
-            d,
+            dice,
             match opts.aggregate {
                 None => rolls
                     .iter()
@@ -155,7 +157,7 @@ fn main() {
                     .join(" "),
                 Some(Aggregate::Sum) => format!("{}", rolls.iter().sum::<u32>()),
                 Some(Aggregate::Avg) =>
-                    format!("{}", rolls.iter().sum::<u32>() as f32 / d.count as f32),
+                    format!("{}", rolls.iter().sum::<u32>() as f32 / dice.count as f32),
                 Some(Aggregate::Max) => format!(
                     "{}",
                     rolls
@@ -180,7 +182,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse() {
+    fn test_parse() {
         let expected = Dice::new(6, 5);
         assert_eq!(expected, Dice::from_str("6d5").unwrap());
 
@@ -189,12 +191,13 @@ mod tests {
 
         assert!(Dice::from_str("-5d20").is_err());
         assert!(Dice::from_str("5d-20").is_err());
+        assert!(Dice::from_str("5d").is_err());
     }
 
     #[test]
-    fn roll() {
+    fn test_roll() {
         for count in 1..=100 {
-            for sides in 1..=100 {
+            for sides in 2..=100 {
                 let dice = Dice::new(count, sides);
                 let rolls = dice.roll();
                 for roll in rolls {
@@ -203,23 +206,4 @@ mod tests {
             }
         }
     }
-
-    // #[test]
-    // fn distribution() {
-    //     use std::collections::HashMap;
-
-    //     let mut map = HashMap::new();
-    //     let dice = Dice::new(1, 100);
-    //     for _ in 0..100_000 {
-    //         let rolls = dice.roll();
-    //         for roll in rolls {
-    //             let counter = map.entry(roll).or_insert(0);
-    //             *counter += 1;
-    //         }
-    //     }
-
-    //     for key in 1..=100 {
-    //         println!("{}: {}", key, map[&key]);
-    //     }
-    // }
 }
